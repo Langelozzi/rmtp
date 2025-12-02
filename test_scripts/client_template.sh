@@ -1,5 +1,5 @@
 ../build/client \
-    --target-ip 127.0.0.1 \
+    --target-ip 192.168.1.79 \
     --target-port 3002 \
     --max-retries 3 \
     --timeout 1
