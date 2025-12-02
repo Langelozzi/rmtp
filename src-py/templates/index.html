@@ -1,0 +1,656 @@
+<!doctype html>
+<html>
+
+<head>
+    <meta charset="utf-8" />
+    <title>Companion App - Live Logs</title>
+    <style>
+        html,
+        body {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            padding: 12px;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 12px
+        }
+
+        .tab {
+            padding: 8px 12px;
+            border: 1px solid #ccc;
+            cursor: pointer;
+            border-radius: 4px;
+            background: #f6f6f6
+        }
+
+        .tab.active {
+            background: #fff;
+            border-bottom: 2px solid #007bff;
+        }
+
+        .panel {
+            display: none;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background: #fff;
+            /* make panels stretch to fill remaining viewport */
+            height: calc(100vh - 120px);
+            box-sizing: border-box;
+        }
+
+        .panel.active {
+            display: block
+        }
+
+        .cards {
+            display: flex;
+            gap: 12px;
+            height: calc(100% - 16px);
+        }
+
+        .card {
+            flex: 1;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            padding: 8px;
+            background: #fafafa;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+        }
+
+        .card h4 {
+            margin: 0 0 8px 0;
+            flex-shrink: 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .clear-btn {
+            background: #dc3545;
+            color: white;
+            border: none;
+            padding: 4px 8px;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+
+        .clear-btn:hover {
+            background: #c82333;
+        }
+
+        /* log container inside each card should scroll */
+        #client-logs,
+        #proxy-logs,
+        #server-logs {
+            flex: 1;
+            overflow-y: auto;
+            min-height: 0;
+            background: #000;
+            color: #fff;
+            padding: 8px;
+            border-radius: 4px;
+            font-family: 'Courier New', Monaco, monospace;
+        }
+
+        .log-line {
+            font-family: 'Courier New', Monaco, monospace;
+            font-size: 13px;
+            padding: 2px 0;
+            color: #fff;
+            white-space: pre-wrap;
+        }
+
+        .placeholder-table {
+            width: 100%;
+            border-collapse: collapse
+        }
+
+        .placeholder-table th,
+        .placeholder-table td {
+            border: 1px solid #ddd;
+            padding: 6px
+        }
+
+        .chart-container {
+            height: 300px;
+            max-height: 300px;
+            width: 100%;
+            position: relative;
+        }
+
+        .chart-container canvas {
+            max-height: 100% !important;
+            max-width: 100% !important;
+        }
+    </style>
+</head>
+
+<body>
+    <h2>Companion App — Live Logs</h2>
+
+    <div class="tabs">
+        <div id="tab-logs" class="tab active">Logs</div>
+        <div id="tab-graphs" class="tab">Graphs</div>
+        <div id="tab-controls" class="tab">Controls</div>
+    </div>
+
+    <div id="panel-logs" class="panel active">
+        <div class="cards">
+            <div class="card" id="client-card">
+                <h4>Client <button class="clear-btn" onclick="clearLogs('client-logs')">Clear</button></h4>
+                <div id="client-logs"></div>
+            </div>
+            <div class="card" id="proxy-card">
+                <h4>Proxy <button class="clear-btn" onclick="clearLogs('proxy-logs')">Clear</button></h4>
+                <div id="proxy-logs"></div>
+            </div>
+            <div class="card" id="server-card">
+                <h4>Server <button class="clear-btn" onclick="clearLogs('server-logs')">Clear</button></h4>
+                <div id="server-logs"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="panel-graphs" class="panel">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+            <h3 style="margin: 0;">Statistics & Graphs</h3>
+            <button class="clear-btn" onclick="clearStats()" style="font-size: 14px; padding: 6px 12px;">Clear
+                Stats</button>
+        </div>
+        <div
+            style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; height: calc(100% - 50px); overflow: hidden;">
+            <div>
+                <h4>Message Flow</h4>
+                <div class="chart-container">
+                    <canvas id="messageChart"></canvas>
+                </div>
+            </div>
+            <div>
+                <h4>Proxy Statistics</h4>
+                <div class="chart-container">
+                    <canvas id="proxyChart"></canvas>
+                </div>
+            </div>
+            <div>
+                <h4>Retransmission Stats</h4>
+                <div class="chart-container">
+                    <canvas id="retransmissionChart"></canvas>
+                </div>
+            </div>
+            <div>
+                <h4>Network Health</h4>
+                <div
+                    style="background: #f8f9fa; padding: 12px; border-radius: 4px; height: 300px; max-height: 300px; overflow-y: auto;">
+                    <div id="health-stats">
+                        <p><strong>Packet Drop Rate:</strong> <span id="drop-rate">0%</span></p>
+                        <p><strong>Packet Delay Rate:</strong> <span id="delay-rate">1%</span></p>
+                        <p><strong>Round-Trip Success Rate:</strong> <span id="round-trip-success">0%</span></p>
+                        <p><strong>Total Packets:</strong> <span id="total-packets">0</span></p>
+                        <p><strong>Messages Attempted:</strong> <span id="messages-attempted">0</span></p>
+                        <p><strong>Messages Acknowledged:</strong> <span id="messages-acknowledged">0</span></p>
+                        <p><strong>Retransmissions:</strong> <span id="retransmissions">0</span></p>
+                        <p><strong>Lost Packets:</strong> <span id="lost-packets">0</span></p>
+                        <p><strong>Timeouts:</strong> <span id="timeout-count">0</span></p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="panel-controls" class="panel">
+        <h3>Proxy Configuration</h3>
+        <div style="background: #f8f9fa; padding: 12px; border-radius: 4px; max-width: 600px;">
+            <form id="config-form" onsubmit="updateProxyConfig(event)">
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;">
+                    <div>
+                        <h4>Client Settings</h4>
+                        <div style="margin-bottom: 8px;">
+                            <label for="client_drop">Drop Percentage (0-100):</label>
+                            <input type="number" id="client_drop" name="client_drop" min="0" max="100" value="0"
+                                style="width: 100%; padding: 4px; margin-top: 2px;">
+                        </div>
+                        <div style="margin-bottom: 8px;">
+                            <label for="client_delay">Delay Percentage (0-100):</label>
+                            <input type="number" id="client_delay" name="client_delay" min="0" max="100" value="0"
+                                style="width: 100%; padding: 4px; margin-top: 2px;">
+                        </div>
+                        <div style="margin-bottom: 8px;">
+                            <label for="client_delay_time_min">Min Delay (ms):</label>
+                            <input type="number" id="client_delay_time_min" name="client_delay_time_min" min="0"
+                                value="0" style="width: 100%; padding: 4px; margin-top: 2px;">
+                        </div>
+                        <div style="margin-bottom: 8px;">
+                            <label for="client_delay_time_max">Max Delay (ms):</label>
+                            <input type="number" id="client_delay_time_max" name="client_delay_time_max" min="0"
+                                value="0" style="width: 100%; padding: 4px; margin-top: 2px;">
+                        </div>
+                    </div>
+                    <div>
+                        <h4>Server Settings</h4>
+                        <div style="margin-bottom: 8px;">
+                            <label for="server_drop">Drop Percentage (0-100):</label>
+                            <input type="number" id="server_drop" name="server_drop" min="0" max="100" value="0"
+                                style="width: 100%; padding: 4px; margin-top: 2px;">
+                        </div>
+                        <div style="margin-bottom: 8px;">
+                            <label for="server_delay">Delay Percentage (0-100):</label>
+                            <input type="number" id="server_delay" name="server_delay" min="0" max="100" value="0"
+                                style="width: 100%; padding: 4px; margin-top: 2px;">
+                        </div>
+                        <div style="margin-bottom: 8px;">
+                            <label for="server_delay_time_min">Min Delay (ms):</label>
+                            <input type="number" id="server_delay_time_min" name="server_delay_time_min" min="0"
+                                value="0" style="width: 100%; padding: 4px; margin-top: 2px;">
+                        </div>
+                        <div style="margin-bottom: 8px;">
+                            <label for="server_delay_time_max">Max Delay (ms):</label>
+                            <input type="number" id="server_delay_time_max" name="server_delay_time_max" min="0"
+                                value="0" style="width: 100%; padding: 4px; margin-top: 2px;">
+                        </div>
+                    </div>
+                </div>
+
+                <div style="margin-bottom: 16px;">
+                    <h4>Connection Settings</h4>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                        <div>
+                            <label for="proxy_host">Proxy Host:</label>
+                            <input type="text" id="proxy_host" name="proxy_host" value="127.0.0.1"
+                                style="width: 100%; padding: 4px; margin-top: 2px;">
+                        </div>
+                        <div>
+                            <label for="proxy_port">Proxy Control Port:</label>
+                            <input type="number" id="proxy_port" name="proxy_port" value="9100" min="1" max="65535"
+                                style="width: 100%; padding: 4px; margin-top: 2px;">
+                        </div>
+                    </div>
+                </div>
+
+                <button type="submit"
+                    style="background: #007bff; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer;">
+                    Update Configuration
+                </button>
+            </form>
+
+            <div id="config-status" style="margin-top: 16px; padding: 8px; border-radius: 4px; display: none;"></div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        // Tab switching
+        document.getElementById('tab-logs').onclick = () => switchTab('logs')
+        document.getElementById('tab-graphs').onclick = () => switchTab('graphs')
+        document.getElementById('tab-controls').onclick = () => switchTab('controls')
+
+        function switchTab(name) {
+            ['logs', 'graphs', 'controls'].forEach(n => {
+                document.getElementById('tab-' + n).classList.toggle('active', n === name)
+                document.getElementById('panel-' + n).classList.toggle('active', n === name)
+            })
+
+            // Only update charts when graphs tab is active
+            if (name === 'graphs') {
+                startChartUpdates()
+            } else {
+                stopChartUpdates()
+            }
+        }
+
+        const clientLogs = document.getElementById('client-logs')
+        const proxyLogs = document.getElementById('proxy-logs')
+        const serverLogs = document.getElementById('server-logs')
+
+        // Chart variables - will be initialized only when needed
+        let messageChart = null
+        let proxyChart = null
+        let retransmissionChart = null
+        let chartsInitialized = false
+
+        // Initialize charts only when graphs tab is opened
+        function initializeCharts() {
+            if (chartsInitialized) return
+
+            try {
+                console.log('Initializing charts...')
+
+                messageChart = new Chart(document.getElementById('messageChart'), {
+                    type: 'bar',
+                    data: {
+                        labels: ['Msgs Attempted', 'Msgs ACKd', 'Proxy Fwd', 'Proxy Drop', 'Proxy Delay', 'Server Sent', 'Server Recv'],
+                        datasets: [{
+                            label: 'Count',
+                            data: [0, 0, 0, 0, 0, 0, 0],
+                            backgroundColor: ['#007bff', '#28a745', '#ffc107', '#dc3545', '#fd7e14', '#6f42c1', '#17a2b8']
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        animation: false
+                    }
+                })
+
+                proxyChart = new Chart(document.getElementById('proxyChart'), {
+                    type: 'doughnut',
+                    data: {
+                        labels: ['Forwarded', 'Dropped', 'Delayed'],
+                        datasets: [{
+                            data: [1, 1, 1], // Start with small values to avoid empty chart
+                            backgroundColor: ['#28a745', '#dc3545', '#ffc107']
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        animation: false
+                    }
+                })
+
+                retransmissionChart = new Chart(document.getElementById('retransmissionChart'), {
+                    type: 'bar',
+                    data: {
+                        labels: ['Timeouts', 'Retransmissions'],
+                        datasets: [{
+                            label: 'Count',
+                            data: [0, 0],
+                            backgroundColor: ['#dc3545', '#ffc107']
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        animation: false
+                    }
+                })
+
+                chartsInitialized = true
+                console.log('Charts initialized successfully')
+            } catch (error) {
+                console.error('Chart initialization failed:', error)
+            }
+        }
+
+        // Chart update control
+        let isUpdatingCharts = false
+        let updateInterval = null
+
+        // Update charts periodically
+        async function updateCharts() {
+            if (isUpdatingCharts) return // Prevent concurrent updates
+            isUpdatingCharts = true
+
+            try {
+                // Update message counts
+                const msgResponse = await fetch('/api/message-counts')
+                if (!msgResponse.ok) throw new Error(`HTTP ${msgResponse.status}`)
+                const msgData = await msgResponse.json()
+
+                // Update proxy stats
+                const proxyResponse = await fetch('/api/proxy-stats')
+                if (!proxyResponse.ok) throw new Error(`HTTP ${proxyResponse.status}`)
+                const proxyData = await proxyResponse.json()
+
+                if (messageChart && messageChart.data && msgData && proxyData) {
+                    messageChart.data.datasets[0].data = [
+                        proxyData?.messages_attempted || 0, // Messages attempted by client
+                        proxyData?.messages_acknowledged || 0, // Messages acknowledged by client
+                        msgData.proxy?.forwarded || 0,
+                        msgData.proxy?.dropped || 0,
+                        proxyData?.delayed || 0,
+                        msgData.server?.sent || 0, msgData.server?.received || 0
+                    ]
+                    messageChart.update('none')
+                }
+
+                if (proxyChart && proxyChart.data && proxyData) {
+                    proxyChart.data.datasets[0].data = [
+                        proxyData.forwarded || 0, proxyData.dropped || 0, proxyData.delayed || 0
+                    ]
+                    proxyChart.update('none')
+                }
+
+                // Update retransmission stats
+                const retransResponse = await fetch('/api/retransmission-stats')
+                if (!retransResponse.ok) throw new Error(`HTTP ${retransResponse.status}`)
+                const retransData = await retransResponse.json()
+
+                if (retransmissionChart && retransmissionChart.data && retransData) {
+                    retransmissionChart.data.datasets[0].data = [
+                        retransData.timeouts || 0, retransData.retransmissions || 0
+                    ]
+                    retransmissionChart.update('none')
+                }
+
+                // Update health stats
+                const dropRateEl = document.getElementById('drop-rate')
+                const delayRateEl = document.getElementById('delay-rate')
+                const roundTripSuccessEl = document.getElementById('round-trip-success')
+                const totalPacketsEl = document.getElementById('total-packets')
+                const messagesAttemptedEl = document.getElementById('messages-attempted')
+                const messagesAcknowledgedEl = document.getElementById('messages-acknowledged')
+                const retransmissionsEl = document.getElementById('retransmissions')
+                const lostPacketsEl = document.getElementById('lost-packets')
+                const timeoutCountEl = document.getElementById('timeout-count')
+
+                if (dropRateEl && proxyData) dropRateEl.textContent = (proxyData.drop_rate || 0) + '%'
+                if (delayRateEl && proxyData) delayRateEl.textContent = (proxyData.delay_rate || 0) + '%'
+                if (roundTripSuccessEl && proxyData) roundTripSuccessEl.textContent = (proxyData.round_trip_success_rate || 0) + '%'
+                if (totalPacketsEl && proxyData) totalPacketsEl.textContent = proxyData.total_packets || 0
+                if (messagesAttemptedEl && proxyData) messagesAttemptedEl.textContent = proxyData.messages_attempted || 0
+                if (messagesAcknowledgedEl && proxyData) messagesAcknowledgedEl.textContent = proxyData.messages_acknowledged || 0
+                if (retransmissionsEl && proxyData) retransmissionsEl.textContent = proxyData.retransmissions || 0
+                if (lostPacketsEl && proxyData) lostPacketsEl.textContent = proxyData.lost_packets || 0
+                if (timeoutCountEl && retransData) timeoutCountEl.textContent = retransData.timeouts || 0
+
+            } catch (err) {
+                console.warn('Chart update error:', err)
+            } finally {
+                isUpdatingCharts = false
+            }
+        }
+
+        // Start chart updates only when graphs tab is active
+        function startChartUpdates() {
+            console.log('Starting chart updates...')
+            stopChartUpdates() // Clear any existing interval
+
+            // Initialize charts if not done already
+            initializeCharts()
+
+            if (!chartsInitialized) {
+                console.error('Charts not initialized, cannot start updates')
+                return
+            }
+
+            updateCharts() // Initial update
+            updateInterval = setInterval(updateCharts, 5000) // Every 5 seconds - slower to be safe
+        }
+
+        function stopChartUpdates() {
+            console.log('Stopping chart updates...')
+            if (updateInterval) {
+                clearInterval(updateInterval)
+                updateInterval = null
+            }
+        }
+
+        const evt = new EventSource('/events')
+        evt.onmessage = function (e) {
+            try {
+                const obj = JSON.parse(e.data)
+                const line = formatLine(obj)
+                if (obj.prefix === 'client') {
+                    appendLine(clientLogs, line)
+                } else if (obj.prefix === 'proxy') {
+                    appendLine(proxyLogs, line)
+                } else if (obj.prefix === 'server') {
+                    appendLine(serverLogs, line)
+                } else {
+                    // unknown: append to proxy for now
+                    appendLine(proxyLogs, line)
+                }
+            } catch (err) {
+                console.warn('bad event', err)
+            }
+        }
+
+        function formatLine(obj) {
+            const ts = obj.timestamp || ''
+            const lvl = obj.level || obj.level_name || ''
+            const msg = obj.message || obj.msg || JSON.stringify(obj)
+            const el = document.createElement('div')
+            el.className = 'log-line'
+            el.textContent = `[${ts}] [${lvl}] ${msg}`
+            return el
+        }
+
+        function appendLine(container, el) {
+            container.appendChild(el)
+            // keep reasonable size
+            while (container.childNodes.length > 500) {
+                container.removeChild(container.firstChild)
+            }
+            // auto-scroll to bottom
+            container.scrollTop = container.scrollHeight
+        }
+
+        // Proxy configuration update function
+        async function updateProxyConfig(event) {
+            event.preventDefault()
+
+            const form = event.target
+            const formData = new FormData(form)
+            const config = {}
+
+            // Convert form data to object
+            for (const [key, value] of formData.entries()) {
+                config[key] = value
+            }
+
+            const statusDiv = document.getElementById('config-status')
+            statusDiv.style.display = 'block'
+            statusDiv.style.background = '#fff3cd'
+            statusDiv.style.color = '#856404'
+            statusDiv.textContent = 'Updating configuration...'
+
+            try {
+                const response = await fetch('/control/proxy/update-config', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        host: config.proxy_host,
+                        port: parseInt(config.proxy_port),
+                        client_drop: parseInt(config.client_drop),
+                        server_drop: parseInt(config.server_drop),
+                        client_delay: parseInt(config.client_delay),
+                        server_delay: parseInt(config.server_delay),
+                        client_delay_time_min: parseInt(config.client_delay_time_min),
+                        client_delay_time_max: parseInt(config.client_delay_time_max),
+                        server_delay_time_min: parseInt(config.server_delay_time_min),
+                        server_delay_time_max: parseInt(config.server_delay_time_max)
+                    })
+                })
+
+                const result = await response.json()
+
+                if (response.ok && result.success) {
+                    statusDiv.style.background = '#d4edda'
+                    statusDiv.style.color = '#155724'
+                    statusDiv.textContent = 'Configuration updated successfully!'
+                } else {
+                    statusDiv.style.background = '#f8d7da'
+                    statusDiv.style.color = '#721c24'
+                    statusDiv.textContent = 'Error: ' + (result.error || 'Unknown error')
+                }
+            } catch (error) {
+                statusDiv.style.background = '#f8d7da'
+                statusDiv.style.color = '#721c24'
+                statusDiv.textContent = 'Connection error: ' + error.message
+            }
+
+            // Hide status after 5 seconds
+            setTimeout(() => {
+                statusDiv.style.display = 'none'
+            }, 5000)
+        }
+
+        // Clear logs function
+        function clearLogs(logContainerId) {
+            const container = document.getElementById(logContainerId)
+            if (container) {
+                container.innerHTML = ''
+                console.log(`Cleared ${logContainerId}`)
+            }
+        }
+
+        // Clear stats function
+        async function clearStats() {
+            try {
+                // Call backend to clear log data
+                const response = await fetch('/api/clear-stats', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                })
+
+                if (response.ok) {
+                    // Reset charts to initial state
+                    if (messageChart && messageChart.data) {
+                        messageChart.data.datasets[0].data = [0, 0, 0, 0, 0, 0, 0]
+                        messageChart.update('none')
+                    }
+
+                    if (proxyChart && proxyChart.data) {
+                        proxyChart.data.datasets[0].data = [1, 1, 1] // Small values to avoid empty chart
+                        proxyChart.update('none')
+                    }
+
+                    if (retransmissionChart && retransmissionChart.data) {
+                        retransmissionChart.data.datasets[0].data = [0, 0]
+                        retransmissionChart.update('none')
+                    }
+
+                    // Reset health stats
+                    document.getElementById('drop-rate').textContent = '0%'
+                    document.getElementById('delay-rate').textContent = '0%'
+                    document.getElementById('round-trip-success').textContent = '0%'
+                    document.getElementById('total-packets').textContent = '0'
+                    document.getElementById('messages-attempted').textContent = '0'
+                    document.getElementById('messages-acknowledged').textContent = '0'
+                    document.getElementById('retransmissions').textContent = '0'
+                    document.getElementById('lost-packets').textContent = '0'
+                    document.getElementById('timeout-count').textContent = '0'
+
+                    console.log('Cleared all statistics and charts')
+                } else {
+                    console.error('Failed to clear backend statistics')
+                }
+            } catch (error) {
+                console.error('Error clearing statistics:', error)
+            }
+        }
+    </script>
+</body>
+
+</html>
